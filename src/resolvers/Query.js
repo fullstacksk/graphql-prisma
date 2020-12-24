@@ -1,27 +1,47 @@
 const Query = {
-	users(parent, args, { db }, info) {
-		if (!args.query) {
-			return db.users;
+	users(parent, args, { prisma }, info) {
+		const opArgs = {};
+		if (args.query) {
+			opArgs.where = {
+				OR: [ { name_contains: args.query }, { email_contains: args.query } ]
+			};
 		}
-		return db.users.filter((user) => {
-			return user.name.toLowerCase().includes(args.query.toLowerCase());
-		});
+		return prisma.query.users(opArgs, info);
 	},
-	books(parent, args, { db }, info) {
-		if (!args.query) {
-			return db.books;
+	posts(parent, args, { prisma }, info) {
+		const opArgs = {};
+		if (args.query) {
+			opArgs.where = {
+				OR: [ { title_contains: args.query }, { body_contains: args.query } ]
+			};
 		}
-		return db.books.filter((book) => {
-			return book.title.toLowerCase().includes(args.query.toLowerCase());
-		});
+		return prisma.query.posts(opArgs, info);
 	},
-	reviews(parent, args, { db }, info) {
-		if (!args.query) {
-			return db.reviews;
+	comments(parent, args, { prisma }, info) {
+		const opArgs = {};
+
+		if (args.query) {
+			opArgs.where = {
+				text_contains: args.query
+			};
 		}
-		return db.reviews.filter((review) => {
-			return review.text.toLowerCase().includes(args.query.toLowerCase());
-		});
+
+		return prisma.query.comments(opArgs, info);
+	},
+	me() {
+		return {
+			id: '123098',
+			name: 'Mike',
+			email: 'mike@example.com'
+		};
+	},
+	post() {
+		return {
+			id: '092',
+			title: 'GraphQL 101',
+			body: '',
+			published: false
+		};
 	}
 };
 

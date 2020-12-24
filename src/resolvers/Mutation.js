@@ -1,182 +1,204 @@
-import { v4 as uuidv4 } from 'uuid';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
+import getUserId from '../utils/getUserId';
+
 const Mutation = {
-	createUser(parent, args, { db }, info) {
-		const emailTaken = db.users.some((user) => user.email === args.data.email);
+	async loginUser(parent, args, { prisma }, info) {
+		const [ user ] = await prisma.query.users({
+			where: {
+				email: args.data.email
+			}
+		});
+		if (!user) throw new Error('Invalid credentials');
+
+		const isMatch = await bcrypt.compare(args.data.password, user.password);
+		if (!isMatch) throw new Error('Invalid credentials');
+		return {
+			user,
+			token: await jwt.sign({ userId: user.id }, 'thisismysecret')
+		};
+	},
+	async createUser(parent, args, { prisma }, info) {
+		const emailTaken = await prisma.exists.User({ email: args.data.email });
+
 		if (emailTaken) {
 			throw new Error('Email taken');
 		}
-		const user = {
-			id: uuidv4(),
-			...args.data
-		};
-		db.users.push(user);
-		return user;
-	},
-	createBook(parent, args, { pubsub, db }, info) {
-		const authorExist = db.users.some((user) => user.id === args.data.author);
-		if (!authorExist) {
-			throw new Error("Author does'nt exist");
-		}
-		const book = {
-			id: uuidv4(),
-			...args.data
-		};
-		db.books.push(book);
 
-		if (book.published)
-			pubsub.publish(`book`, {
-				book: {
-					mutation: 'CREATED',
-					data: book
-				}
-			});
-		return book;
+		if (args.data.password.length < 8) throw new Error('Password must be at least of 8 characters');
+
+		const password = await bcrypt.hash(args.data.password, 10);
+
+		const user = await prisma.mutation.createUser({
+			data: {
+				...args.data,
+				password
+			}
+		});
+
+		return {
+			user,
+			token: jwt.sign({ userId: user.id }, 'thisismysecret')
+		};
 	},
-	createReview(parent, args, { db, pubsub }, info) {
-		const userExist = db.users.some((user) => user.id === args.data.author);
-		const bookExist = db.books.some((book) => book.id === args.data.book);
+	async deleteUser(parent, args, { prisma, request }, info) {
+		const userId = getUserId(request);
+		const userExist = await prisma.exists.User({ id: userId });
+
 		if (!userExist) {
-			throw new Error("Author doesn't exist");
-		}
-		if (!bookExist) {
-			throw new Error("Book doesn't exist");
-		}
-		const review = {
-			id: uuidv4(),
-			...args.data
-		};
-		db.reviews.push(review);
-
-		pubsub.publish(`review ${args.data.book}`, {
-			review: {
-				mutation: 'CREATED',
-				data: review
-			}
-		});
-		return review;
-	},
-	deleteUser(parent, args, { db }, info) {
-		const userIndex = db.users.findIndex((user) => user.id === args.id);
-		if (userIndex === -1) {
-			throw new Error('User not Found');
-		}
-		const deletedUser = db.users.splice(userIndex, 1);
-		db.books = db.books.filter((book) => {
-			const match = book.author === args.id;
-			if (match) {
-				db.reviews = db.reviews.filter((review) => review.book !== book.id);
-			}
-			return !match;
-		});
-		db.reviews = db.reviews.filter((review) => review.author === args.id);
-		return deletedUser[0];
-	},
-	deleteBook(parent, args, { db, pubsub }, info) {
-		const bookIndex = db.books.findIndex((book) => book.id === args.id);
-		if (bookIndex === -1) throw new Error('Book not found');
-		const [ deletedBook ] = db.books.splice(bookIndex, 1);
-		db.reviews = db.reviews.filter((review) => review.book !== args.id);
-
-		if (deletedBook.published)
-			pubsub.publish('book', {
-				book: {
-					mutation: 'DELETED',
-					data: deletedBook
-				}
-			});
-
-		return deletedBook;
-	},
-	deleteReview(parent, args, { db, pubsub }, info) {
-		const reviewIndex = db.reviews.findIndex((review) => review.id === args.id);
-		if (reviewIndex === -1) throw new Error('Review not found');
-		const [ deletedReview ] = db.reviews.splice(reviewIndex, 1);
-		pubsub.publish(`review ${deletedReview.book}`, {
-			review: {
-				mutation: 'DELETED',
-				data: deletedReview
-			}
-		});
-
-		return deletedReview;
-	},
-
-	updateUser(parent, args, { db }, info) {
-		const { id, data } = args;
-		const user = db.users.find((user) => user.id === id);
-		if (!user) throw new Error('User not found');
-
-		if (typeof data.email === 'string') {
-			const emailTaken = db.users.some((user) => user.email === data.email);
-
-			if (emailTaken) throw new Error('Email taken already');
-
-			user.email = data.email;
+			throw new Error('User not found');
 		}
 
-		if (typeof data.name === 'string') user.name = data.name;
-
-		if (typeof data.location !== undefined) user.location = data.location;
-
-		if (typeof data.age !== undefined) user.age = data.age;
-
-		return user;
+		return prisma.mutation.deleteUser(
+			{
+				where: { id: userId }
+			},
+			info
+		);
 	},
+	async updateUser(parent, { data }, { prisma, request }, info) {
+		const userId = getUserId(request);
+		const userExists = await prisma.exists.User({ id: userId });
 
-	updateBook(parent, args, { db, pubsub }, info) {
-		const { id, data } = args;
-		const book = db.books.find((book) => book.id === id);
-		if (!book) throw new Error('Book not found.');
+		if (!userExists) {
+			throw new Error('User not found');
+		}
 
-		const originalBook = { ...book };
-		//title, price, author, instock
-		if (typeof data.title === 'string') book.title = data.title;
-		if (typeof data.price === 'number') book.price = data.price;
-		if (typeof data.inStock === 'boolean') book.inStock = data.inStock;
-		if (typeof data.published === 'boolean') {
-			book.published = data.published;
+		return prisma.mutation.updateUser(
+			{
+				where: { id: userId },
+				data
+			},
+			info
+		);
+	},
+	async createPost(parent, args, { prisma, request }, info) {
+		const userId = getUserId(request);
+		const userExists = await prisma.exists.User({ id: args.data.author });
 
-			if (originalBook.published && !book.published) {
-				//deleted
-				pubsub.publish('book', {
-					book: {
-						mutation: 'DELETED',
-						data: originalBook
+		if (!userExists) {
+			throw new Error('User not found');
+		}
+
+		return prisma.mutation.createPost(
+			{
+				data: {
+					...args.data,
+					author: {
+						connect: {
+							id: userId
+						}
 					}
-				});
-			} else if (!originalBook.published && book.published) {
-				//created
-				pubsub.publish('book', {
-					book: {
-						mutation: 'CREATED',
-						data: book
-					}
-				});
-			}
-		} else if (book.published) {
-			//updated
-			pubsub.publish('book', {
-				book: {
-					mutation: 'UPDATED',
-					data: book
 				}
-			});
-		}
-
-		return book;
+			},
+			info
+		);
 	},
-	updateReview(parent, args, { db, pubsub }, info) {
-		const { id, data } = args;
-		const review = db.reviews.find((review) => review.id === id);
-		if (!review) throw new Error('Review not found.');
-		if (typeof data.text === 'string') review.text = data.text;
-		pubsub.publish(`review ${review.book}`, {
-			review: {
-				mutation: 'UPDATED',
-				data: review
+	async deletePost(parent, args, { prisma, request }, info) {
+		const userId = getUserId(request);
+		const postExists = await prisma.exists.Post({
+			id: args.id,
+			author: {
+				id: userId
 			}
 		});
-		return review;
+
+		if (!postExists) throw new Error('Unable to delete the post');
+
+		return prisma.mutation.deletePost(
+			{
+				where: { id: args.id }
+			},
+			info
+		);
+	},
+	async updatePost(parent, args, { prisma, request }, info) {
+		const userId = getUserId(request);
+		const { id, data } = args;
+		const postExists = await prisma.exists.Post({
+			id,
+			author: {
+				id: userId
+			}
+		});
+
+		if (!postExists) {
+			throw new Error('Unable to update the post');
+		}
+
+		return prisma.mutation.updatePost(
+			{
+				where: { id },
+				data
+			},
+			info
+		);
+	},
+	async createComment(parent, args, { prisma, request }, info) {
+		const userId = getUserId(request);
+		const userExists = await prisma.exists.User({ id: userId });
+		const postExists = await prisma.exists.Post({ id: args.data.post });
+
+		if (!userExists || !postExists) {
+			throw new Error('Unable to comment on this post');
+		}
+
+		return prisma.mutation.createComment(
+			{
+				data: {
+					...args.data,
+					author: {
+						connect: { id: userId }
+					},
+					post: {
+						connect: { id: args.data.post }
+					}
+				}
+			},
+			info
+		);
+	},
+	async deleteComment(parent, args, { prisma, request }, info) {
+		const userId = getUserId(request);
+		const commentExist = await prisma.exists.Comment({
+			id: args.id,
+			author: {
+				id: userId
+			}
+		});
+
+		if (!commentExist) {
+			throw new Error('Comment not found');
+		}
+
+		return prisma.mutation.deleteComment(
+			{
+				where: { id: args.id }
+			},
+			info
+		);
+	},
+	async updateComment(parent, args, { prisma, request }, info) {
+		const userId = getUserId(request);
+		const { id, data } = args;
+		const commentExist = await prisma.exists.Comment({
+			id,
+			author: {
+				id: userId
+			}
+		});
+
+		if (!commentExist) {
+			throw new Error('Unable to update the comment');
+		}
+
+		return prisma.mutation.updateComment(
+			{
+				where: { id },
+				data
+			},
+			info
+		);
 	}
 };
 

@@ -1,93 +1,94 @@
 type Query {
 	users(query: String): [User!]!
-	books(query: String): [Book!]!
-	reviews(query: String): [Review!]!
+	posts(query: String): [Post!]!
+	comments(query: String): [Comment!]!
+	me: User!
+	post: Post!
 }
 
 type Mutation {
-	createUser(data: CreateUserInput!): User!
-	createBook(data: CreateBookInput!): Book!
-	createReview(data: CreateReviewInput!): Review!
-	deleteUser(id: ID!): User!
-	deleteBook(id: ID!): Book!
-	deleteReview(id: ID!): Review!
-	updateUser(id: ID!, data: UpdateUserInput!): User!
-	updateBook(id: ID!, data: UpdateBookInput!): Book!
-	updateReview(id: ID!, data: UpdateReviewInput!): Review!
+	loginUser(data: LoginUserInput!): AuthPayload!
+	createUser(data: CreateUserInput!): AuthPayload!
+	deleteUser: User!
+	updateUser(data: UpdateUserInput!): User!
+	createPost(data: CreatePostInput!): Post!
+	deletePost(id: ID!): Post!
+	updatePost(id: ID!, data: UpdatePostInput!): Post!
+	createComment(data: CreateCommentInput!): Comment!
+	deleteComment(id: ID!): Comment!
+	updateComment(id: ID!, data: UpdateCommentInput!): Comment!
 }
 
 type Subscription {
-	review(bookId: ID!): ReviewSubscriptionPayload!
-	book: BookSubscriptionPayload!
+	comment(postId: ID): CommentSubscriptionPayload!
+	post: PostSubscriptionPayload!
 }
 
-input UpdateBookInput {
-	title: String
-	price: Float
-	inStock: Boolean
-	published: Boolean
-}
-
-input UpdateUserInput {
-	name: String
-	email: String
-	location: String
-	age: Int
+input LoginUserInput {
+	email: String!
+	password: String!
 }
 
 input CreateUserInput {
 	name: String!
 	email: String!
-	location: String
-	age: Int
+	password: String!
 }
 
-input CreateBookInput {
+input UpdateUserInput {
+	name: String
+	email: String
+	password: String
+}
+
+input CreatePostInput {
 	title: String!
-	price: Float!
-	author: ID!
+	body: String!
 	published: Boolean!
-	inStock: Boolean
 }
 
-input CreateReviewInput {
+input UpdatePostInput {
+	title: String
+	body: String
+	published: Boolean
+}
+
+input CreateCommentInput {
 	text: String!
-	author: ID!
-	book: ID!
+	post: ID!
 }
 
-input UpdateReviewInput {
+input UpdateCommentInput {
 	text: String
+}
+
+type AuthPayload {
+	token: String!
+	user: User!
 }
 
 type User {
 	id: ID!
 	name: String!
 	email: String!
-	location: String
-	books: [Book!]!
-	reviews: [Review!]!
-	age: Int
-	totalBooks: Int
+	posts: [Post!]!
+	comments: [Comment!]!
 }
 
-type Book {
+type Post {
 	id: ID!
 	title: String!
-	author: User!
-	price: Float!
+	body: String!
 	published: Boolean!
-	releaseYear: String
-	rating: Float
-	inStock: Boolean
-	reviews: [Review!]!
+	author: User!
+	comments: [Comment!]!
 }
 
-type Review {
+type Comment {
 	id: ID!
 	text: String!
 	author: User!
-	book: Book!
+	post: Post!
 }
 
 enum MutationType {
@@ -96,12 +97,12 @@ enum MutationType {
 	DELETED
 }
 
-type BookSubscriptionPayload {
+type PostSubscriptionPayload {
 	mutation: MutationType!
-	data: Book!
+	node: Post
 }
 
-type ReviewSubscriptionPayload {
+type CommentSubscriptionPayload {
 	mutation: MutationType!
-	data: Review!
+	node: Comment
 }

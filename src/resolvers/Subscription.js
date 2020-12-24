@@ -1,18 +1,32 @@
 const Subscription = {
-	review: {
-		subscribe(parent, { bookId }, { pubsub, db }, info) {
-			const book = db.books.find((book) => book.id === bookId);
-			if (!book) {
-				throw new Error('Book not found');
-			}
-
-			return pubsub.asyncIterator(`review ${bookId}`);
+	comment: {
+		subscribe(parent, { postId }, { prisma }, info) {
+			return prisma.subscription.comment(
+				{
+					where: {
+						node: {
+							post: {
+								id: postId
+							}
+						}
+					}
+				},
+				info
+			);
 		}
 	},
-
-	book: {
-		subscribe(parent, { userId }, { db, pubsub }, info) {
-			return pubsub.asyncIterator(`book`);
+	post: {
+		subscribe(parent, args, { prisma }, info) {
+			return prisma.subscription.post(
+				{
+					where: {
+						node: {
+							published: true
+						}
+					}
+				},
+				info
+			);
 		}
 	}
 };
